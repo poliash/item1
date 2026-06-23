@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1.0,user-scalable=no" />
+<title>kp4</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#000;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh}
+.frame{position:relative;width:490px;height:715px;background:#fff;flex-shrink:0;overflow:hidden}
+svg{display:block;width:100%;height:100%}
+.dot{transition:opacity .2s ease-out}
+#i{margin-top:18px;background:transparent;border:none;border-bottom:1px solid rgba(255,255,255,.12);color:rgba(255,255,255,.35);font:12px/1.5 "SF Mono",monospace;outline:none;width:140px;padding:3px 0;letter-spacing:2px;text-align:center;caret-color:rgba(255,255,255,.2);transition:opacity .6s}
+#i::placeholder{color:rgba(255,255,255,.08)}
+#i:focus{color:rgba(255,255,255,.6);border-bottom-color:rgba(255,255,255,.25)}
+#e{background:none;border:none;color:rgba(255,255,255,.12);font:10px/1 "SF Mono",monospace;cursor:pointer;margin-top:12px;letter-spacing:1px;transition:color .3s;padding:6px}
+#e:hover{color:rgba(255,255,255,.4)}
+</style>
+</head>
+<body>
+<div class="frame">
+  <svg id="s" viewBox="0 0 490 715" xmlns="http://www.w3.org/2000/svg" width="490" height="715">
+    <rect width="490" height="715" fill="#fff" />
+    <circle id="init" cx="245" cy="50" r="25" fill="#000" />
+  </svg>
+</div>
+<input id="i" type="text" placeholder="enter SKU" value="" spellcheck="false" autocomplete="off" />
+<button id="e">export svg</button>
+<script>
+
+const SVG_NS='http://www.w3.org/2000/svg'
+const svg=document.getElementById('s')
+const CX=245,DOT_D=50,DOT_R=25
+
+function hash(s){let h=5381;for(let i=0;i<s.length;i++){h=((h<<5)+h)+s.charCodeAt(i);h|=0}return Math.abs(h)}
+function lcg(seed){let s=seed%2147483647;if(s<=0)s+=2147483646;return ()=>{s=(s*16807)%2147483647;return(s-1)/2147483646}}
+
+
+let circles=[]
+let circlesData=[]
+let R=null
+let startTime=0
+let done=false
+
+function rd(v){return Math.round(v*100)/100}
+
+function generate(sku){
+  const d=[...sku.replace(/\D/g,'')].map(Number)
+  if(!d.length)return
+
+  circles.forEach(el=>el.remove())
+  circles=[]
+  circlesData=[]
+
+  R=lcg(hash(sku))
+
+  const sizeDigit=d[0]
+  const count= d.length>1 ? Math.max(1,d[1]) : 5
+  const dotD=Math.min(130,Math.max(4,DOT_D*sizeDigit/2))
+  const dotR=dotD/2
+
+  const step=50+3*d[0]*d[1]
+
+  let prevX=CX, prevY=50
+
+  for(let i=0;i<count;i++){
+    // random direction: left or right (seeded RNG)
+    let dx=R()<0.5?-1:1
+    let dy=0
+
+    let x=prevX+step*dx
+    let y=50
+
+    // boundary reflection
+    if(x-dotR<0){x=dotR;dx=1}
+    if(x+dotR>490){x=490-dotR;dx=-1}
+    if(y-dotR<0)y=dotR
+    if(y+dotR>715)y=715-dotR
+
+    // push out if overlapping previous circle
+    {
+      const cx=i===0?CX:prevX, cy=i===0?50:prevY, cr=i===0?DOT_R:dotR
+      const dxc=x-cx, dyc=y-cy
+      const dist=Math.hypot(dxc,dyc)
+      const need=Math.max(40,cr+dotR)
+      if(dist<need&&dist>0){
+        x=cx+dxc/dist*need
+        y=cy+dyc/dist*need
+        if(x-dotR<0)x=dotR
+        if(x+dotR>490)x=490-dotR
+        if(y-dotR<0)y=dotR
+        if(y+dotR>715)y=715-dotR
+      }
+    }
+
+    circlesData.push({x,y,r:dotR})
+
+    const el=document.createElementNS(SVG_NS,'circle')
+    el.setAttribute('cx',rd(x))
+    el.setAttribute('cy',rd(y))
+    el.setAttribute('r',dotR)
+    el.setAttribute('fill','#000')
+    el.classList.add('gen','dot')
+    el.style.opacity='0'
+    svg.appendChild(el)
+    circles.push(el)
+
+    prevX=x;prevY=y
+  }
+
+  startTime=performance.now()
+  done=false
+}
+
+function loop(now){
+  if(circles.length&&!done){
+    const elapsed=now-startTime
+    const visible=Math.floor(elapsed/200)
+    for(let i=0;i<circles.length;i++){
+      circles[i].style.opacity=i<=visible?'1':'0'
+    }
+    if(visible>=circles.length)done=true
+  }
+  requestAnimationFrame(loop)
+}
+
+const inp=document.getElementById('i')
+inp.addEventListener('keydown',e=>{
+  if(e.key==='Enter'&&e.target.value.trim()){
+    generate(e.target.value.trim())
+  }
+})
+
+document.getElementById('e').addEventListener('click',exportSVG)
+document.addEventListener('keydown',e=>{
+  if(e.key==='e'&&!e.ctrlKey&&!e.metaKey&&!e.target.matches('input'))exportSVG()
+})
+
+function exportSVG(){
+  let xml='<?xml version="1.0" encoding="UTF-8"?>\n'
+  xml+='<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 490 715">\n'
+  xml+='  <rect width="490" height="715" fill="#fff"/>\n'
+  xml+='  <circle cx="245" cy="50" r="25" fill="#000"/>\n'
+  for(const p of circlesData){
+    xml+='  <circle cx="'+rd(p.x)+'" cy="'+rd(p.y)+'" r="'+p.r+'" fill="#000"/>\n'
+  }
+  xml+='</svg>'
+  const blob=new Blob([xml],{type:'image/svg+xml'})
+  const url=URL.createObjectURL(blob)
+  const a=document.createElement('a')
+  a.href=url
+  a.download='kp4-'+(document.getElementById('i').value.trim()||'untitled')+'.svg'
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
+requestAnimationFrame(loop)
+inp.focus()
+
+</script>
+</body>
+</html>
